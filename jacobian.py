@@ -1,4 +1,5 @@
 import numpy as np
+import sympy as sp
 """
 this class generates the jacobian matrix for a given industrial robot
 provide the class with a dictionary of joints in the following manner
@@ -13,11 +14,12 @@ orientation(x,y,z) = the axis of rotation or translation of the joint,
 
 length(float) = the length between current joint and the previous joint
 """
-class jacobian_generator:
+class industrial_robot:
     def __init__(self, joints: dict):
         self.joints = joints
-        self.q = [0] * 6  # q[0] for joint 1, q[1] for joint 2, etc.
+        self.q = sp.symbols(f'q:{len(joints)}')
         self.number_of_joints = len(joints)
+        self.jacobian = self.jacobian_generator(self.q) 
 
     def transformation_matrix(self, key, joint: str):
         string = joint.split(',')
@@ -27,80 +29,107 @@ class jacobian_generator:
 
         idx = key
         q = self.q[idx]
+        s, c = sp.sin(q), sp.cos(q)
 
         if rotation_plane == 'ee':
             if orientation == 'z':
-                return np.array([[1, 0, 0, 0],
+                return sp.Matrix([[1, 0, 0, 0],
                                  [0, 1, 0, 0],
                                  [0, 0, 1, length],
                                  [0, 0, 0, 1]])
             elif orientation == 'y':
-                return np.array([[1, 0, 0, 0],
+                return sp.Matrix([[1, 0, 0, 0],
                                  [0, 1, 0, length],
                                  [0, 0, 1, 0],
                                  [0, 0, 0, 1]])
             elif orientation == 'x':
-                return np.array([[1, 0, 0, length],
+                return sp.Matrix([[1, 0, 0, length],
                                  [0, 1, 0, 0],
                                  [0, 0, 1, 0],
                                  [0, 0, 0, 1]])
 
         elif rotation_plane == 'xy':
             if orientation == 'z':
-                return np.array([[np.cos(q), -np.sin(q), 0, 0],
-                                 [np.sin(q), np.cos(q), 0, 0],
+                return sp.Matrix([[c, -s, 0, 0],
+                                 [s, c, 0, 0],
                                  [0, 0, 1, length],
                                  [0, 0, 0, 1]])
             elif orientation == 'y':
-                return np.array([[np.cos(q), -np.sin(q), 0, 0],
-                                 [np.sin(q), np.cos(q), 0, length],
+                return sp.Matrix([[c, -s, 0, 0],
+                                 [s, c, 0, length],
                                  [0, 0, 1, 0],
                                  [0, 0, 0, 1]])
             elif orientation == 'x':
-                return np.array([[np.cos(q), -np.sin(q), 0, length],
-                                 [np.sin(q), np.cos(q), 0, 0],
+                return sp.Matrix([[c, -s, 0, length],
+                                 [s, c, 0, 0],
                                  [0, 0, 1, 0],
                                  [0, 0, 0, 1]])
             
         elif rotation_plane == 'xz':
             if orientation == 'z':
-                return np.array([[np.cos(q), 0, np.sin(q), 0],
+                return sp.Matrix([[c, 0, s, 0],
                                  [0, 1, 0, 0],
-                                 [-np.sin(q), 0, np.cos(q), length],
+                                 [-s, 0, c, length],
                                  [0, 0, 0, 1]])
             elif orientation == 'y':
-                return np.array([[np.cos(q), 0, np.sin(q), 0],
+                return sp.Matrix([[c, 0, s, 0],
                                  [0, 1, 0, length],
-                                 [-np.sin(q), 0, np.cos(q), 0],
+                                 [-s, 0, c, 0],
                                  [0, 0, 0, 1]])
             elif orientation == 'x':
-                return np.array([[np.cos(q), 0, np.sin(q), length],
+                return sp.Matrix([[c, 0, s, length],
                                  [0, 1, 0, 0],
-                                 [-np.sin(q), 0, np.cos(q), 0],
+                                 [-s, 0, c, 0],
                                  [0, 0, 0, 1]])
             
         elif rotation_plane == 'yz':
             if orientation == 'z':
-                return np.array([[1, 0, 0, 0],
-                                 [0, np.cos(q), -np.sin(q), 0],
-                                 [0, np.sin(q), np.cos(q), length],
+                return sp.Matrix([[1, 0, 0, 0],
+                                 [0, c, -s, 0],
+                                 [0, s, c, length],
                                  [0, 0, 0, 1]])
             elif orientation == 'y':
-                return np.array([[1, 0, 0, 0],
-                                 [0, np.cos(q), -np.sin(q), length],
-                                 [0, np.sin(q), np.cos(q), 0],
+                return sp.Matrix([[1, 0, 0, 0],
+                                 [0, c, -s, length],
+                                 [0, s, c, 0],
                                  [0, 0, 0, 1]])
             elif orientation == 'x':
-                return np.array([[1, 0, 0, length],
-                                 [0, np.cos(q), -np.sin(q), 0],
-                                 [0, np.sin(q), np.cos(q), 0],
+                return sp.Matrix([[1, 0, 0, length],
+                                 [0, c, -s, 0],
+                                 [0, s, c, 0],
                                  [0, 0, 0, 1]])
             
     def total_transformation_matrix(self):
-
+        T = np.eye(4)
         for key, joint in self.joints.items():
-            if key == 0:
-                T = self.transformation_matrix(key, joint)
-            else:
-                T = np.matmul(T, self.transformation_matrix(key, joint))
+            T = T * self.transformation_matrix(key, joint)
         return T
+    
+    def jacobian_generator(self, q: list):
+        T = self.total_transformation_matrix()
+
+        x = T[0, 3]
+        y = T[1, 3]
+        z = T[2, 3]
+        R = T[:3,:3]
+
+        J = sp.zeros(6, self.number_of_joints)
+        for i in range(self.number_of_joints):
+            J[0, i] = sp.diff(x, self.q[i])
+            J[1, i] = sp.diff(y, self.q[i])
+            J[2, i] = sp.diff(z, self.q[i])
+
+                    # Angular velocity part (from rotation derivative)
+            dR_dqi = R.diff(self.q[i])
+            w_i = sp.Matrix([
+                dR_dqi[2,1] - dR_dqi[1,2],
+                dR_dqi[0,2] - dR_dqi[2,0],
+                dR_dqi[1,0] - dR_dqi[0,1]
+            ]) / 2
+            J[3:, i] = w_i
+        return sp.simplify(J)
+    
+
+        
+    
+
